@@ -1,0 +1,8 @@
+# Client drawings stay local only
+*.pdf
+1.5-PA-00011-A2C-02/
+
+# Local tooling / test-only model
+.claude/
+models/test-pipe-set.glb
+lines/test-pipe-set.json

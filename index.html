@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>KGI Pipe Simulator</title>
+<script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer@3.5.0/dist/model-viewer.min.js"></script>
+<style>
+  :root {
+    --bg: #f4f5f7; --panel: #ffffff; --text: #1b1f24; --muted: #5d6673;
+    --line: #dde1e6; --accent: #0b5cad; --accent-text: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14171b; --panel: #1d2127; --text: #e8eaed; --muted: #9aa3ae; --line: #2e343c; --accent: #4a9bea; --accent-text: #0b1520; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif; }
+  header { padding: 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { margin: 0; font-size: 18px; }
+  header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+  main { max-width: 960px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+  .models { display: flex; gap: 8px; overflow-x: auto; }
+  .models button { flex: 0 0 auto; padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; cursor: pointer; }
+  .models button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .viewer { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  model-viewer { width: 100%; height: min(70vh, 560px); background: var(--panel); --poster-color: transparent; }
+  .ar-btn { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); padding: 12px 22px; border: 0; border-radius: 999px; background: var(--accent); color: var(--accent-text); font: inherit; font-weight: 600; font-size: 15px; cursor: pointer; }
+  .info { padding: 12px 16px; border-top: 1px solid var(--line); display: grid; gap: 4px; font-size: 14px; }
+  .info .name { font-weight: 600; }
+  .info .muted { color: var(--muted); font-size: 13px; }
+  .links { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+  .link-btn { padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; color: var(--accent); text-decoration: none; font-size: 14px; }
+  .link-btn[hidden] { display: none; }
+  .note { color: var(--muted); font-size: 13px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<header>
+  <h1>KGI Pipe Simulator</h1>
+  <p>스마트폰 카메라로 배관·설비를 실제 크기로 미리 배치해 보세요</p>
+</header>
+<main>
+  <nav class="models" id="models" aria-label="모델 목록"></nav>
+
+  <section class="viewer">
+    <model-viewer id="mv" camera-controls touch-action="pan-y" shadow-intensity="1" exposure="1"
+                  ar ar-modes="webxr scene-viewer quick-look" ar-scale="fixed" ar-placement="floor"
+                  alt="배관 3D 모델">
+      <button slot="ar-button" class="ar-btn">📷 AR로 보기</button>
+    </model-viewer>
+    <div class="info">
+      <div class="name" id="name"></div>
+      <div class="muted" id="desc"></div>
+      <div class="muted" id="dims"></div>
+      <div class="muted" id="ar-status"></div>
+      <div class="links">
+        <a id="site-ar" class="link-btn">📐 현장 정합 AR / 축소 모형 (안드로이드)</a>
+        <a id="drawing" class="link-btn" target="_blank" rel="noopener">📄 도면 PDF</a>
+      </div>
+    </div>
+  </section>
+
+  <p class="note">
+    안드로이드: Chrome에서 "AR로 보기" → 바닥을 천천히 비추면 모델이 실제 크기로 놓입니다.<br>
+    아이폰: Safari에서 "AR로 보기" → AR Quick Look으로 열립니다.<br>
+    PC에서는 마우스로 돌려 보기만 할 수 있습니다.
+  </p>
+</main>
+
+<script type="module">
+  // Add new CAD exports here. iosSrc (USDZ) is optional: model-viewer converts the GLB for iPhone automatically.
+  // Models are generated from lines/<id>.json by tools/build-line.ps1.
+  const MODELS = [
+    // Drawing PDFs are kept out of the public repo; add `drawing: '<path>.pdf'` only for local use.
+    { id: 'PA-00011', name: '1-1/2"-PA-00011-A2C', src: 'models/PA-00011.glb',
+      desc: '공장 공기 · BOP EL GL+9400 · 2D 아이소 도면 기반 간이 모델' },
+  ];
+
+  const mv = document.getElementById('mv');
+  const nav = document.getElementById('models');
+
+  function select(m) {
+    mv.src = m.src;
+    if (m.iosSrc) mv.setAttribute('ios-src', m.iosSrc); else mv.removeAttribute('ios-src');
+    document.getElementById('name').textContent = m.name;
+    document.getElementById('desc').textContent = m.desc || '';
+    document.getElementById('dims').textContent = '';
+    document.getElementById('site-ar').href = `ar.html?line=${encodeURIComponent(m.id)}`;
+    const dw = document.getElementById('drawing');
+    dw.hidden = !m.drawing; if (m.drawing) dw.href = m.drawing;
+    for (const b of nav.children) b.setAttribute('aria-pressed', String(b.dataset.id === m.id));
+  }
+
+  for (const m of MODELS) {
+    const b = document.createElement('button');
+    b.textContent = m.name; b.dataset.id = m.id;
+    b.addEventListener('click', () => select(m));
+    nav.appendChild(b);
+  }
+
+  mv.addEventListener('load', () => {
+    const d = mv.getDimensions();
+    const f = v => v.toFixed(2);
+    document.getElementById('dims').textContent = `크기: 가로 ${f(d.x)} m × 높이 ${f(d.y)} m × 깊이 ${f(d.z)} m`;
+    document.getElementById('ar-status').textContent = mv.canActivateAR
+      ? '이 기기에서 AR을 사용할 수 있습니다.'
+      : '이 기기/브라우저에서는 AR을 쓸 수 없습니다 (3D 미리보기만 가능).';
+  });
+
+  select(MODELS[0]);
+</script>
+</body>
+</html>
