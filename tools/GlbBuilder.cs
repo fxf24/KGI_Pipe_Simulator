@@ -172,7 +172,29 @@ public class GlbBuilder {
     // ---- GLB writer ----
     static string F(double d) { return d.ToString("0.######", CultureInfo.InvariantCulture); }
 
-    public void Save(string path, string name) {
+    // floor = true shifts the geometry so its lowest point sits at y = 0 and it is centered in X/Z
+    // (for viewers like AR Quick Look that place the model's origin on the detected floor).
+    public void Save(string path, string name, bool floor) {
+        double ox = 0, oy = 0, oz = 0;
+        if (floor) {
+            double[] lo = { double.MaxValue, double.MaxValue, double.MaxValue }, hi = { double.MinValue, double.MinValue, double.MinValue };
+            foreach (var md in meshes.Values)
+                for (int i = 0; i < md.Pos.Count; i++) { int k = i % 3; lo[k] = Math.Min(lo[k], md.Pos[i]); hi[k] = Math.Max(hi[k], md.Pos[i]); }
+            ox = (lo[0] + hi[0]) / 2; oy = lo[1]; oz = (lo[2] + hi[2]) / 2;
+        }
+        var saved = new Dictionary<string, List<float>>();
+        foreach (var kv in meshes) {
+            saved[kv.Key] = kv.Value.Pos;
+            var p = new List<float>(kv.Value.Pos.Count);
+            for (int i = 0; i < kv.Value.Pos.Count; i += 3) {
+                p.Add((float)(kv.Value.Pos[i] - ox)); p.Add((float)(kv.Value.Pos[i + 1] - oy)); p.Add((float)(kv.Value.Pos[i + 2] - oz));
+            }
+            kv.Value.Pos = p;
+        }
+        try { Write(path, name); } finally { foreach (var kv in saved) meshes[kv.Key].Pos = kv.Value; }
+    }
+
+    void Write(string path, string name) {
         var bin = new MemoryStream(); var bw = new BinaryWriter(bin);
         var views = new List<string>(); var accs = new List<string>(); var jm = new List<string>();
         var nodes = new List<string>(); var mats = new List<string>();

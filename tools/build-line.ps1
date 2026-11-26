@@ -25,7 +25,10 @@ foreach ($f in $files) {
         }
     }
     $id = [System.IO.Path]::GetFileNameWithoutExtension($f)
+    # <id>.glb keeps real site coordinates (used by ar.html alignment);
+    # <id>-view.glb sits on the floor, centered (used by the model list / AR Quick Look / Scene Viewer).
     $out = Join-Path $root "models\$id.glb"
-    $b.Save($out, $line.name)
-    Write-Output ("{0} -> models\{1}.glb ({2:N0} bytes)" -f $line.name, $id, (Get-Item $out).Length)
+    $b.Save($out, $line.name, $false)
+    $b.Save((Join-Path $root "models\$id-view.glb"), $line.name, $true)
+    Write-Output ("{0} -> models\{1}.glb + {1}-view.glb ({2:N0} bytes)" -f $line.name, $id, (Get-Item $out).Length)
 }
