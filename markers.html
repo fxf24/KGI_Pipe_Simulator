@@ -5,6 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>KGI 배관 마커 인쇄</title>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
 <!-- ArUco marker library (MIT/LGPL, unmodified): https://github.com/damianofalcioni/js-aruco2 -->
 <script src="https://cdn.jsdelivr.net/npm/js-aruco2@2.0.0/src/cv.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/js-aruco2@2.0.0/src/aruco.js"></script>
@@ -22,6 +28,8 @@
   .arrow { width: 170mm; height: 22mm; }
   .marker-wrap { position: relative; width: 190mm; height: 190mm; }
   .marker-wrap svg.marker { width: 190mm; height: 190mm; display: block; shape-rendering: crispEdges; }
+  .marker-wrap.ios { width: 180mm; height: 180mm; }
+  .marker-wrap.ios img { width: 180mm; height: 180mm; display: block; }
   .tick { position: absolute; background: #000; }
   .tick.t, .tick.b { width: 0.6mm; height: 8mm; left: calc(50% - 0.3mm); }
   .tick.t { top: -9mm; } .tick.b { bottom: -9mm; }
@@ -48,6 +56,7 @@
 <div id="pages"></div>
 
 <script type="module">
+import { drawIosMarker, IOS_MARKER_MM } from './ios-marker.js';
 const lineId = new URLSearchParams(location.search).get('line') || 'PA-00011';
 const line = await fetch(`models/${lineId}.json`).then(r => r.json());
 const dict = new AR.Dictionary('ARUCO_MIP_36h12');
@@ -70,6 +79,23 @@ for (const [i, m] of (line.markers || []).entries()) {
     <div class="marker-wrap">${svg}<i class="tick t"></i><i class="tick b"></i><i class="tick l"></i><i class="tick r"></i></div>
     <div class="foot">마커 번호 ${m.id} (ArUco MIP_36h12) · 검은 사각형 한 변 152 mm — 인쇄 후 자로 확인하세요.<br>
       구겨지거나 반사가 심하면 인식이 잘 안 됩니다. 마커는 처음 모델을 띄울 때만 쓰입니다.</div>`;
+  pages.appendChild(page);
+}
+
+// iPhone (AR Quick Look) image marker, experimental: same spot and direction as marker 1.
+if (line.refPoints && line.refPoints.length) {
+  const page = document.createElement('section');
+  page.className = 'page';
+  page.innerHTML = `
+    <h1>${line.name} · 아이폰용 마커 (실험)</h1>
+    <div class="sub">설치 위치: <b>${line.refPoints[0].label}</b> (마커 1과 같은 자리)<br>
+      무늬 <b>정중앙</b>을 그 지점에 맞추고, <b>화살표를 배관 진행 방향</b>으로 향하게 바닥에 평평하게 붙이세요.</div>
+    <svg class="arrow" viewBox="0 0 170 22"><line x1="4" y1="11" x2="150" y2="11" stroke="#000" stroke-width="4"/><polygon points="148,1 168,11 148,21" fill="#000"/>
+      <text x="60" y="8" font-size="6" text-anchor="middle" fill="#000">배관 방향</text></svg>
+    <div class="marker-wrap ios"><img alt="아이폰용 마커"><i class="tick t"></i><i class="tick b"></i><i class="tick l"></i><i class="tick r"></i></div>
+    <div class="foot">아이폰 Safari → 모델 목록 → 「🍎 아이폰 마커 AR」에서 사용 · 무늬 한 변 ${IOS_MARKER_MM} mm — 인쇄 후 자로 확인하세요.<br>
+      무늬 방향을 돌리지 말고 화살표가 오른쪽을 가리키는 상태 그대로 쓰세요.</div>`;
+  page.querySelector('img').src = drawIosMarker(document.createElement('canvas'), lineId).toDataURL();
   pages.appendChild(page);
 }
 </script>
