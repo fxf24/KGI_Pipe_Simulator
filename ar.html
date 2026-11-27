@@ -15,6 +15,9 @@
   #title { font-weight: 600; font-size: 15px; }
   #msg { margin-top: 4px; font-size: 14px; color: var(--muted); line-height: 1.45; }
   #msg b { color: var(--text); }
+  #status { margin-top: 6px; font-size: 13px; }
+  #status:empty, #err:empty { display: none; }
+  #err { margin-top: 6px; font-size: 13px; color: #ff7a7a; }
   .btns { display: flex; gap: 8px; flex-wrap: wrap; }
   button { font: inherit; font-size: 14px; padding: 10px 14px; border-radius: 8px; border: 1px solid #3a414a; background: #222830; color: var(--text); cursor: pointer; }
   button.primary { background: var(--accent); border-color: var(--accent); color: #08131f; font-weight: 600; }
@@ -57,7 +60,7 @@
 </div>
 
 <div id="overlay">
-  <div class="bar"><div id="title"></div><div id="msg"></div></div>
+  <div class="bar"><div id="title"></div><div id="msg"></div><div id="status"></div><div id="err"></div></div>
   <div class="bar btns" id="controls">
     <button class="primary" id="btn-mark">점 찍기</button>
     <button id="btn-height" hidden>바닥으로 내리기</button>
@@ -118,6 +121,10 @@ let mode = 'site', taps = [], lowered = false, hit = null;
 const angleXZ = v => Math.atan2(-v.z, v.x);   // rotation about +Y moves this angle by +theta
 
 function msg(html) { $('msg').innerHTML = html; }
+function status(text) { $('status').textContent = text; }
+function showError(e) { console.error(e); $('err').textContent = '오류: ' + (e && e.message || e); }
+addEventListener('error', e => showError(e.error || e.message));
+addEventListener('unhandledrejection', e => showError(e.reason));
 
 function prompt() {
   if (taps.length >= 2) return;
@@ -200,26 +207,42 @@ function begin() {
 // ---------- WebXR (Android Chrome) ----------
 let hitSource = null;
 async function startAR() {
-  const session = await navigator.xr.requestSession('immersive-ar', {
-    requiredFeatures: ['hit-test'], optionalFeatures: ['dom-overlay'], domOverlay: { root: $('overlay') } });
+  // The overlay root should be displayed when the session asks for it, or Chrome may not show it.
+  $('overlay').classList.add('on');
+  let session;
+  try {
+    session = await navigator.xr.requestSession('immersive-ar', {
+      requiredFeatures: ['hit-test'], optionalFeatures: ['dom-overlay'], domOverlay: { root: $('overlay') } });
+  } catch (e) { $('overlay').classList.remove('on'); throw e; }
   renderer.xr.setReferenceSpaceType('local');
   await renderer.xr.setSession(session);
   const viewer = await session.requestReferenceSpace('viewer');
   hitSource = await session.requestHitTestSource({ space: viewer });
-  session.addEventListener('select', mark);
+  session.addEventListener('select', () => { try { mark(); } catch (e) { showError(e); } });
   session.addEventListener('end', () => location.reload());
   begin();
+  reticle.matrixAutoUpdate = false;
+  let lastHitAt = 0, floorShown = null;
+  // three.js re-requests the next XR frame only after this callback returns, so an exception here
+  // would freeze hit-testing for the rest of the session. Never let it throw.
   renderer.setAnimationLoop((t, frame) => {
-    hit = null; reticle.visible = false;
-    if (frame && hitSource && taps.length < 2) {
-      const res = frame.getHitTestResults(hitSource);
-      if (res.length) {
-        const pose = res[0].getPose(renderer.xr.getReferenceSpace());
-        reticle.matrix.fromArray(pose.transform.matrix);
-        reticle.matrixAutoUpdate = false; reticle.visible = true;
-        hit = new THREE.Vector3().setFromMatrixPosition(reticle.matrix);
-      }
-    }
+    try {
+      reticle.visible = false;
+      if (frame && hitSource && taps.length < 2) {
+        const res = frame.getHitTestResults(hitSource);
+        const pose = res.length ? res[0].getPose(renderer.xr.getReferenceSpace()) : null;  // getPose may return null
+        if (pose) {
+          reticle.matrix.fromArray(pose.transform.matrix);
+          reticle.visible = true;
+          hit = new THREE.Vector3().setFromMatrixPosition(reticle.matrix);
+          lastHitAt = t;
+        } else if (t - lastHitAt > 700) {
+          hit = null;   // keep the last hit briefly so a tap during a one-frame dropout still counts
+        }
+        const found = !!hit;
+        if (found !== floorShown) { floorShown = found; status(found ? '✅ 바닥 인식됨 — 흰 원 위치에 점을 찍을 수 있습니다' : '🔍 바닥 찾는 중… 휴대폰을 천천히 좌우로 움직여 주세요'); }
+      } else if (floorShown !== null && taps.length >= 2) { floorShown = null; status(''); }
+    } catch (e) { showError(e); }
     renderer.render(scene, camera);
   });
 }
