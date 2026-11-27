@@ -138,8 +138,12 @@ function mark() {
   if (taps.length >= 2) return;
   if (!hit) { msg('바닥(또는 책상)을 천천히 비춰 흰 원이 나타나게 해 주세요.'); return; }
   const p = hit.clone(); taps.push(p);
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.3, 12), new THREE.MeshBasicMaterial({ color: taps.length === 1 ? 0xff5a5a : 0x5a9bff }));
-  m.position.copy(p).add(new THREE.Vector3(0, 0.15, 0)); markers.add(m);
+  const mat = new THREE.MeshBasicMaterial({ color: taps.length === 1 ? 0xff5a5a : 0x5a9bff });
+  const m = new THREE.Group();
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.5, 12), mat); pole.position.y = 0.25;
+  const knob = new THREE.Mesh(new THREE.SphereGeometry(0.05, 16, 12), mat); knob.position.y = 0.5;
+  const foot = new THREE.Mesh(new THREE.RingGeometry(0.04, 0.07, 32).rotateX(-Math.PI / 2), mat); foot.position.y = 0.002;
+  m.add(pole, knob, foot); m.position.copy(p); markers.add(m);
   if (taps.length === 2) place(); else prompt();
 }
 
@@ -214,6 +218,8 @@ async function startAR() {
     session = await navigator.xr.requestSession('immersive-ar', {
       requiredFeatures: ['hit-test'], optionalFeatures: ['dom-overlay'], domOverlay: { root: $('overlay') } });
   } catch (e) { $('overlay').classList.remove('on'); throw e; }
+  // Without this, three.js keeps drawing to the hidden page canvas instead of the AR view.
+  renderer.xr.enabled = true;
   renderer.xr.setReferenceSpaceType('local');
   await renderer.xr.setSession(session);
   const viewer = await session.requestReferenceSpace('viewer');
