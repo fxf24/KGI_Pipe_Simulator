@@ -39,14 +39,19 @@
   "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
 } }
 </script>
+<!-- ArUco marker detection (js-aruco2, MIT/LGPL, unmodified) -->
+<script src="https://cdn.jsdelivr.net/npm/js-aruco2@2.0.0/src/cv.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/js-aruco2@2.0.0/src/aruco.js"></script>
 </head>
 <body>
 <div id="start">
   <div class="card">
     <h1 id="line-name">불러오는 중…</h1>
     <div class="modes">
-      <label><input type="radio" name="mode" value="site" checked>
-        <span><b>현장 정합 (1:1)</b><small>도면의 기준점 2곳을 실제 바닥에서 찍으면, 배관이 실제 크기로 그 자리에 놓입니다.</small></span></label>
+      <label><input type="radio" name="mode" value="marker" checked>
+        <span><b>마커 스캔 (1:1, 추천)</b><small>바닥에 둔 인쇄 마커를 비추면 배관이 실제 크기로 그 자리에 놓입니다. 마커는 <a href="index.html">모델 목록</a>의 "마커 인쇄"에서 출력하세요.</small></span></label>
+      <label><input type="radio" name="mode" value="site">
+        <span><b>현장 정합 (점 찍기, 1:1)</b><small>도면의 기준점 2곳을 실제 바닥에서 찍으면, 배관이 실제 크기로 그 자리에 놓입니다.</small></span></label>
       <label><input type="radio" name="mode" value="mini">
         <span><b>축소 모형</b><small>책상·바닥에 두 점을 찍으면, 그 길이에 맞춰 축소된 모형이 놓입니다.</small></span></label>
     </div>
@@ -73,29 +78,41 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { CameraMarkerScanner, MARKER_SIDE_M } from './marker-scan.js';
 
 const $ = id => document.getElementById(id);
-const lineId = new URLSearchParams(location.search).get('line') || 'PA-00011';
+let lineId = new URLSearchParams(location.search).get('line') || 'PA-00011';
 const UP = new THREE.Vector3(0, 1, 0);
 
 // ---------- data ----------
-const line = await fetch(`models/${lineId}.json`).then(r => r.json());   // generated metadata (refPoints etc.)
 // [E, N, EL] mm -> three.js meters (x = E, y = EL, z = -N)
 const toV = a => new THREE.Vector3(a[0] / 1000, a[2] / 1000, -a[1] / 1000);
-const refs = line.refPoints.map(p => ({ label: p.label, v: toV(p.at) }));
-$('line-name').textContent = line.name;
-$('title').textContent = line.name;
+const INDEX = await fetch('models/index.json').then(r => r.json());
+const markerLine = new Map();   // printed marker id -> line id
+for (const l of INDEX) for (const id of l.markerIds || []) markerLine.set(id, l.id);
+const knownMarkerIds = new Set(markerLine.keys());
 
-const gltf = await new GLTFLoader().loadAsync(`models/${lineId}.glb`);
-const model = gltf.scene;
-const box = new THREE.Box3().setFromObject(model);
-const refMarks = new THREE.Group(); // model reference points, compared against the taps in site mode
-for (const r of refs) {
-  const s = new THREE.Mesh(new THREE.SphereGeometry(0.05, 16, 12), new THREE.MeshBasicMaterial({ color: 0x3fbf6f }));
-  s.position.copy(r.v); refMarks.add(s);
+const pivot = new THREE.Group(); pivot.visible = false;
+let line, refs, model, box, refMarks;
+// Loads a line's metadata and real-coordinate model into the pivot (also used when a marker of another line is scanned).
+async function loadLine(id) {
+  const meta = await fetch(`models/${id}.json`).then(r => r.json());
+  const gltf = await new GLTFLoader().loadAsync(`models/${id}.glb`);
+  if (model) pivot.remove(model);
+  lineId = id; line = meta; model = gltf.scene;
+  refs = line.refPoints.map(p => ({ label: p.label, v: toV(p.at) }));
+  box = new THREE.Box3().setFromObject(model);
+  refMarks = new THREE.Group(); // model reference points, compared against the taps in site mode
+  for (const r of refs) {
+    const s = new THREE.Mesh(new THREE.SphereGeometry(0.05, 16, 12), new THREE.MeshBasicMaterial({ color: 0x3fbf6f }));
+    s.position.copy(r.v); refMarks.add(s);
+  }
+  model.add(refMarks);
+  pivot.add(model);
+  $('line-name').textContent = line.name;
+  $('title').textContent = line.name;
 }
-model.add(refMarks);
-const pivot = new THREE.Group(); pivot.add(model); pivot.visible = false;
+await loadLine(lineId);
 
 // ---------- scene ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -129,6 +146,7 @@ addEventListener('error', e => showError(e.error || e.message));
 addEventListener('unhandledrejection', e => showError(e.reason));
 
 function prompt() {
+  if (mode === 'marker') return markerPrompt();
   if (taps.length >= 2) return;
   const n = taps.length + 1;
   msg(mode === 'site'
@@ -137,17 +155,23 @@ function prompt() {
 }
 
 function mark() {
-  if (taps.length >= 2) return;
+  if (mode === 'marker' || taps.length >= 2) return;
   if (!hit) { msg('바닥(또는 책상)을 천천히 비춰 흰 원이 나타나게 해 주세요.'); return; }
   const p = hit.clone(); taps.push(p);
-  const mat = new THREE.MeshBasicMaterial({ color: taps.length === 1 ? 0xff5a5a : 0x5a9bff });
+  const m = makePin(taps.length === 1 ? 0xff5a5a : 0x5a9bff); m.position.copy(p); markers.add(m);
+  if (xrActive) anchorQueue.push(taps.length - 1);   // turned into an ARCore anchor on the next XR frame
+  if (taps.length === 2) place(); else prompt();
+}
+
+// Red/blue pin standing on a tapped point or a scanned marker.
+function makePin(color) {
+  const mat = new THREE.MeshBasicMaterial({ color });
   const m = new THREE.Group();
   const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.5, 12), mat); pole.position.y = 0.25;
   const knob = new THREE.Mesh(new THREE.SphereGeometry(0.05, 16, 12), mat); knob.position.y = 0.5;
   const foot = new THREE.Mesh(new THREE.RingGeometry(0.04, 0.07, 32).rotateX(-Math.PI / 2), mat); foot.position.y = 0.002;
-  m.add(pole, knob, foot); m.position.copy(p); markers.add(m);
-  if (xrActive) anchorQueue.push(taps.length - 1);   // turned into an ARCore anchor on the next XR frame
-  if (taps.length === 2) place(); else prompt();
+  m.add(pole, knob, foot);
+  return m;
 }
 
 // Pivot transform from the two taps (also re-run every frame in AR as the anchors are corrected).
@@ -155,7 +179,7 @@ function computePlacement() {
   const [A, B] = taps;
   const d = B.clone().sub(A); d.y = 0;
   const realDist = d.length();
-  if (mode === 'site') {
+  if (mode !== 'mini') {
     const mA = refs[0].v, mB = refs[1].v;
     const md = mB.clone().sub(mA); md.y = 0;
     const theta = angleXZ(d) - angleXZ(md);
@@ -202,12 +226,88 @@ function place() {
 }
 
 function reset() {
-  anchorGen++; anchorQueue = [];
+  anchorGen++; anchorQueue = []; mkAnchorQueue = [];
   for (const a of tapAnchors) a && a.delete && a.delete();
-  tapAnchors = [];
+  for (const m of mk) m && m.anchor && m.anchor.delete && m.anchor.delete();
+  tapAnchors = []; mk = []; mkSamples.clear();
   taps = []; markers.clear(); pivot.visible = false;
-  $('btn-mark').hidden = false; $('btn-height').hidden = true;
+  $('btn-mark').hidden = mode === 'marker'; $('btn-height').hidden = true;
   prompt();
+}
+
+// ---------- marker scan mode: printed floor markers (markers.html) place the model ----------
+const MARKER_SAMPLES = 8;            // consistent detections needed before a marker is accepted
+let mk = [];                         // per marker slot (0 = marker 1, 1 = marker 2): { center, dir, mesh, anchor }
+let mkAnchorQueue = [];
+const mkSamples = new Map();         // marker id -> recent detections
+let switching = false, cameraOK = false;
+
+function markerPrompt() {
+  if (xrActive && !cameraOK) {
+    msg('이 기기/브라우저는 카메라 영상 접근을 허용하지 않아 마커 스캔을 쓸 수 없습니다. <b>종료</b> 후 "현장 정합 (점 찍기)"를 사용해 주세요.');
+    return;
+  }
+  if (!mk[0] && !mk[1]) msg(`바닥에 둔 <b>마커</b>를 1 m 안팎 거리에서 화면에 크게 비춰 주세요.<br><small>마커 1 위치: ${refs[0] ? refs[0].label : '-'}</small>`);
+}
+
+// One detection { id, center, dir, side } from the camera (or the PC test hook).
+async function onMarkerSeen(det) {
+  const lid = markerLine.get(det.id);
+  if (!lid || switching) return;
+  if (lid !== lineId) {   // a marker of another line: switch the model
+    switching = true; status(`다른 라인의 마커입니다 → ${lid} 불러오는 중…`);
+    try { reset(); await loadLine(lid); prompt(); } finally { switching = false; }
+    return;
+  }
+  const spec = (line.markers || []).find(m => m.id === det.id);
+  if (!spec || mk[spec.ref]) return;
+  if (Math.abs(det.side - MARKER_SIDE_M) > MARKER_SIDE_M * 0.3) {
+    status(`마커가 ${(det.side * 1000).toFixed(0)} mm로 보입니다 (정상 152 mm). 마커가 바닥에 평평하게 있는지, 100% 크기로 인쇄됐는지 확인하세요.`);
+    return;
+  }
+  let s = mkSamples.get(det.id) || [];
+  if (s.length && s[s.length - 1].center.distanceTo(det.center) > 0.05) s = [];   // jumped: start over
+  s.push(det); mkSamples.set(det.id, s);
+  status(`마커 ${spec.ref + 1} 인식 중… ${s.length}/${MARKER_SAMPLES} (휴대폰을 잠시 멈춰 주세요)`);
+  if (s.length < MARKER_SAMPLES) return;
+  mkSamples.delete(det.id);
+  const center = new THREE.Vector3(), dir = new THREE.Vector3();
+  for (const x of s) { center.add(x.center); dir.add(x.dir); }
+  center.divideScalar(s.length); dir.y = 0; dir.normalize();
+  const mesh = makePin(spec.ref === 0 ? 0xff5a5a : 0x5a9bff); mesh.position.copy(center); markers.add(mesh);
+  mk[spec.ref] = { center, dir, mesh, anchor: null };
+  if (xrActive) mkAnchorQueue.push(spec.ref);
+  status(`✅ 마커 ${spec.ref + 1} 인식 완료`);
+  placeFromMarkers(true);
+}
+
+// Model pose from one marker (position + arrow) or, when both are known, from the two marker centers.
+function placeFromMarkers(announce) {
+  const have = [0, 1].filter(i => mk[i]);
+  if (!have.length) return;
+  if (have.length === 2) {
+    taps = [mk[0].center, mk[1].center];
+    const r = computePlacement();
+    if (announce) {
+      const err = (r.realDist - r.modelDist) * 100, ok = Math.abs(err) <= 10;
+      msg(`마커 2개로 배치 완료 (방향 보정됨). 도면 거리 <b>${r.modelDist.toFixed(2)} m</b>, 실제 마커 거리 <b>${r.realDist.toFixed(2)} m</b> → ` +
+          `<b style="color:var(${ok ? '--ok' : '--warn'})">오차 ${err >= 0 ? '+' : ''}${err.toFixed(0)} cm</b>` +
+          (ok ? '' : '<br>오차가 큽니다. 마커를 도면 위치에 정확히 놓았는지 확인하세요.'));
+    }
+  } else {
+    const i = have[0], m = mk[i], spec = line.markers.find(x => x.ref === i);
+    const M = toV(spec.at), md = new THREE.Vector3(spec.dir[0], 0, -spec.dir[1]);
+    const theta = angleXZ(m.dir) - angleXZ(md);
+    pivot.scale.setScalar(1);
+    pivot.rotation.set(0, theta, 0);
+    pivot.position.copy(m.center).sub(M.clone().applyAxisAngle(UP, theta));
+    pivot.position.y = m.center.y - M.y + (lowered ? -box.min.y : 0);
+    if (announce) msg(`마커 ${i + 1} 기준으로 배치 완료.` +
+      (line.markers.length > 1 ? ` 긴 라인은 반대쪽 끝의 <b>마커 ${2 - i}</b>도 비추면 방향이 더 정확해집니다.` : ''));
+  }
+  refMarks.visible = !lowered;
+  pivot.visible = true;
+  $('btn-height').hidden = false;
 }
 
 $('btn-mark').addEventListener('click', mark);
@@ -215,7 +315,8 @@ $('btn-reset').addEventListener('click', reset);
 $('btn-height').addEventListener('click', () => {
   lowered = !lowered;
   $('btn-height').textContent = lowered ? '실제 높이로' : '바닥으로 내리기';
-  if (taps.length === 2) place();
+  if (mode === 'marker') placeFromMarkers(false);
+  else if (taps.length === 2) place();
 });
 // Buttons inside the AR DOM overlay must not also count as a screen tap.
 $('controls').addEventListener('beforexrselect', e => e.preventDefault());
@@ -229,12 +330,15 @@ function begin() {
 // ---------- WebXR (Android Chrome) ----------
 let hitSource = null;
 async function startAR() {
+  const wantMarker = document.querySelector('input[name=mode]:checked').value === 'marker';
   // The overlay root should be displayed when the session asks for it, or Chrome may not show it.
   $('overlay').classList.add('on');
   let session;
   try {
     session = await navigator.xr.requestSession('immersive-ar', {
-      requiredFeatures: ['hit-test'], optionalFeatures: ['dom-overlay', 'anchors'], domOverlay: { root: $('overlay') } });
+      requiredFeatures: ['hit-test'],
+      optionalFeatures: ['dom-overlay', 'anchors'].concat(wantMarker ? ['camera-access'] : []),
+      domOverlay: { root: $('overlay') } });
   } catch (e) { $('overlay').classList.remove('on'); throw e; }
   // Without this, three.js keeps drawing to the hidden page canvas instead of the AR view.
   renderer.xr.enabled = true;
@@ -245,13 +349,19 @@ async function startAR() {
   session.addEventListener('select', () => { try { mark(); } catch (e) { showError(e); } });
   session.addEventListener('end', () => location.reload());
   xrActive = true;
-  const anchorsOK = session.enabledFeatures ? session.enabledFeatures.includes('anchors') : typeof XRFrame.prototype.createAnchor === 'function';
+  const has = f => session.enabledFeatures ? session.enabledFeatures.includes(f) : undefined;
+  const anchorsOK = has('anchors') ?? typeof XRFrame.prototype.createAnchor === 'function';
+  cameraOK = wantMarker && (has('camera-access') ?? typeof XRWebGLBinding.prototype.getCameraImage === 'function');
+  const binding = cameraOK ? new XRWebGLBinding(session, renderer.getContext()) : null;
+  const scanner = cameraOK ? new CameraMarkerScanner(renderer, THREE) : null;
   begin();
   reticle.matrixAutoUpdate = false;
-  let floorShown = null;
-  const floorText = found => (found ? '✅ 바닥 인식됨 — 주변을 2~3초 천천히 비춘 뒤 흰 원 위치에 점을 찍으면 더 정확합니다'
-                                    : '🔍 바닥 찾는 중… 휴대폰을 천천히 좌우로 움직여 주세요')
+  let floorShown = null, floorY = null, frameNo = 0;
+  const floorText = found => (found
+      ? (mode === 'marker' ? '✅ 바닥 인식됨 — 마커를 비춰 주세요' : '✅ 바닥 인식됨 — 주변을 2~3초 천천히 비춘 뒤 흰 원 위치에 점을 찍으면 더 정확합니다')
+      : '🔍 바닥 찾는 중… 휴대폰을 천천히 좌우로 움직여 주세요')
     + (anchorsOK ? '' : '\n⚠ 이 기기는 위치 보정(앵커)을 지원하지 않아 모델이 조금씩 밀릴 수 있습니다');
+  const yawQuat = dir => { const a = angleXZ(dir) / 2; return { x: 0, y: Math.sin(a), z: 0, w: Math.cos(a) }; };
   // three.js re-requests the next XR frame only after this callback returns, so an exception here
   // would freeze hit-testing for the rest of the session. Never let it throw.
   renderer.setAnimationLoop((t, frame) => {
@@ -264,8 +374,9 @@ async function startAR() {
         const pose = res.length ? res[0].getPose(ref) : null;  // getPose may return null
         if (pose) {
           reticle.matrix.fromArray(pose.transform.matrix);
-          reticle.visible = true;
+          reticle.visible = mode !== 'marker';
           hit = new THREE.Vector3().setFromMatrixPosition(reticle.matrix);
+          floorY = hit.y;
         } else hit = null;   // only mark where the ring is right now
         const found = !!hit;
         if (found !== floorShown) { floorShown = found; status(floorText(found)); }
@@ -290,7 +401,35 @@ async function startAR() {
             taps[i].set(q.x, q.y, q.z); markers.children[i].position.copy(taps[i]); moved = true;
           }
         });
-        if (moved && taps.length === 2 && pivot.visible) computePlacement();
+        if (moved && taps.length === 2 && pivot.visible && mode !== 'marker') computePlacement();
+
+        // marker anchors: stored with the arrow as the anchor's +X axis, so both position and direction follow ARCore
+        while (mkAnchorQueue.length) {
+          const i = mkAnchorQueue.shift(), m = mk[i], gen = anchorGen;
+          frame.createAnchor(new XRRigidTransform({ x: m.center.x, y: m.center.y, z: m.center.z }, yawQuat(m.dir)), ref)
+            .then(a => { if (gen === anchorGen && mk[i] === m) m.anchor = a; else a.delete(); })
+            .catch(e => showError(e));
+        }
+        let mkMoved = false;
+        for (const m of mk) {
+          const ap = m && m.anchor && frame.trackedAnchors && frame.trackedAnchors.has(m.anchor) ? frame.getPose(m.anchor.anchorSpace, ref) : null;
+          if (!ap) continue;
+          const mat = new THREE.Matrix4().fromArray(ap.transform.matrix);
+          const c = new THREE.Vector3().setFromMatrixPosition(mat);
+          const d = new THREE.Vector3(1, 0, 0).transformDirection(mat); d.y = 0; d.normalize();
+          if (c.distanceToSquared(m.center) > 1e-8 || d.distanceToSquared(m.dir) > 1e-8) {
+            m.center.copy(c); m.dir.copy(d); m.mesh.position.copy(c); mkMoved = true;
+          }
+        }
+        if (mkMoved && pivot.visible) placeFromMarkers(false);
+      }
+
+      // marker scan: read the camera image every few frames until both markers are known
+      if (frame && scanner && mode === 'marker' && floorY !== null && !(mk[0] && mk[1]) && !switching && ++frameNo % 6 === 0) {
+        const vp = frame.getViewerPose(ref);
+        if (vp && vp.views[0] && vp.views[0].camera) {
+          for (const det of scanner.scan(binding, vp.views[0], floorY, knownMarkerIds)) onMarkerSeen(det);
+        }
       }
     } catch (e) { showError(e); }
     renderer.render(scene, camera);
@@ -321,12 +460,23 @@ function startSim() {
     if (down && Math.hypot(e.clientX - down[0], e.clientY - down[1]) < 5) { hit = toHit(e); mark(); }
   });
   begin();
-  msg($('msg').innerHTML + '<br><small>PC 시뮬레이션: 바닥 격자를 클릭하면 점이 찍힙니다. 드래그로 시점 회전.</small>');
+  msg($('msg').innerHTML + (mode === 'marker'
+    ? '<br><small>PC에는 AR 카메라가 없어 마커 스캔은 휴대폰에서만 됩니다. PC에서는 다른 모드로 시험하세요.</small>'
+    : '<br><small>PC 시뮬레이션: 바닥 격자를 클릭하면 점이 찍힙니다. 드래그로 시점 회전.</small>'));
   renderer.setAnimationLoop(() => renderer.render(scene, camera));
 }
 $('btn-sim').addEventListener('click', startSim);
-// debug hook for automated checks
-window.__ar = { get taps() { return taps; }, pivot, refs, box, place, setTaps: (a, b) => { taps = [a, b]; place(); } , THREE };
+// debug hooks for automated checks
+window.__ar = {
+  get taps() { return taps; }, get refs() { return refs; }, get box() { return box; }, get line() { return line; }, get mk() { return mk; },
+  pivot, place, THREE, setTaps: (a, b) => { taps = [a, b]; place(); },
+  // feeds a marker detection (floor position x/z in meters, arrow angle in degrees) as if the camera saw it
+  simMarker: async (id, x, z, deg) => {
+    const r = deg * Math.PI / 180;
+    for (let i = 0; i < MARKER_SAMPLES; i++)
+      await onMarkerSeen({ id, center: new THREE.Vector3(x, 0, z), dir: new THREE.Vector3(Math.cos(r), 0, -Math.sin(r)), side: MARKER_SIDE_M });
+  },
+};
 
 // ---------- capability check ----------
 const arOK = navigator.xr && await navigator.xr.isSessionSupported('immersive-ar').catch(() => false);

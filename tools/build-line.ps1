@@ -92,7 +92,28 @@ function Build-Header($b, $h) {
     return @{ refPoints = $refs; runLengthM = [Math]::Round($runLen / 1000, 2); branches = $branches }
 }
 
-$files = if ($Ids) { $Ids | ForEach-Object { Join-Path $root "lines\$_.json" } } else { Get-ChildItem (Join-Path $root 'lines\*.json') | ForEach-Object FullName }
+# Printed floor markers (ArUco MIP_36h12, 250 ids): slot k gets marker ids 2k (at refPoints[0]) and 2k+1 (at refPoints[1]).
+# Slots live in lines/marker-slots.json and never change once given, so printed markers stay valid when lines are added.
+$slotFile = Join-Path $root 'lines\marker-slots.json'
+$slots = [ordered]@{}
+if (Test-Path $slotFile) { ([System.IO.File]::ReadAllText($slotFile, $utf8) | ConvertFrom-Json).PSObject.Properties | ForEach-Object { $slots[$_.Name] = [int]$_.Value } }
+foreach ($lid in (Get-ChildItem (Join-Path $root 'lines\*.json') | Where-Object Name -ne 'marker-slots.json' | Sort-Object Name | ForEach-Object BaseName)) {
+    if (-not $slots.Contains($lid)) { $slots[$lid] = $(if ($slots.Count) { ($slots.Values | Measure-Object -Maximum).Maximum + 1 } else { 0 }) }
+}
+[System.IO.File]::WriteAllText($slotFile, ($slots | ConvertTo-Json), $utf8)
+function Get-Markers($id, $refs) {
+    if (-not $slots.Contains($id) -or @($refs).Count -lt 2) { return @() }
+    $k = $slots[$id]
+    if (2 * $k + 1 -gt 249) { throw "Out of marker ids for $id" }
+    $a = $refs[0].at; $z = $refs[1].at
+    $dx = $z[0] - $a[0]; $dy = $z[1] - $a[1]; $len = [Math]::Sqrt($dx * $dx + $dy * $dy)
+    $dir = @([Math]::Round($dx / $len, 6), [Math]::Round($dy / $len, 6), 0)   # arrow = from marker 1 towards marker 2, in plan [E, N]
+    return @(
+        [ordered]@{ id = 2 * $k; ref = 0; label = $refs[0].label; at = $a; dir = $dir },
+        [ordered]@{ id = 2 * $k + 1; ref = 1; label = $refs[1].label; at = $z; dir = $dir })
+}
+
+$files = if ($Ids) { $Ids | ForEach-Object { Join-Path $root "lines\$_.json" } } else { Get-ChildItem (Join-Path $root 'lines\*.json') | Where-Object Name -ne 'marker-slots.json' | ForEach-Object FullName }
 New-Item -ItemType Directory -Force -Path (Join-Path $root 'models') | Out-Null
 
 foreach ($f in $files) {
@@ -117,7 +138,7 @@ foreach ($f in $files) {
 
     $out = [ordered]@{
         id = $id; name = $line.name; service = $line.service; confidence = $line.confidence
-        notes = @($line.notes); refPoints = @($meta.refPoints); branches = @($meta.branches)
+        notes = @($line.notes); refPoints = @($meta.refPoints); markers = @(Get-Markers $id @($meta.refPoints)); branches = @($meta.branches)
         runLengthM = $meta.runLengthM; bomPipeM = $line.bomPipeM
     }
     [System.IO.File]::WriteAllText((Join-Path $root "models\$id.json"), ($out | ConvertTo-Json -Depth 6), $utf8)
@@ -128,5 +149,5 @@ foreach ($f in $files) {
 # index of every built line
 $all = Get-ChildItem (Join-Path $root 'models\*.json') | Where-Object { $_.Name -ne 'index.json' } |
     ForEach-Object { [System.IO.File]::ReadAllText($_.FullName, $utf8) | ConvertFrom-Json } |
-    Sort-Object id | ForEach-Object { [ordered]@{ id = $_.id; name = $_.name; service = $_.service; confidence = $_.confidence } }
+    Sort-Object id | ForEach-Object { [ordered]@{ id = $_.id; name = $_.name; service = $_.service; confidence = $_.confidence; markerIds = @($_.markers | ForEach-Object { $_.id }) } }
 [System.IO.File]::WriteAllText((Join-Path $root 'models\index.json'), (ConvertTo-Json @($all) -Depth 4), $utf8)

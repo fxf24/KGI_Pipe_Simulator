@@ -57,7 +57,8 @@
       <div class="muted" id="dims"></div>
       <div class="muted" id="ar-status"></div>
       <div class="links">
-        <a id="site-ar" class="link-btn">📐 현장 정합 AR / 축소 모형 (안드로이드)</a>
+        <a id="site-ar" class="link-btn">📐 현장 AR (마커 스캔 / 점 찍기 / 축소 모형, 안드로이드)</a>
+        <a id="markers" class="link-btn" target="_blank" rel="noopener">🖨 마커 인쇄</a>
         <a id="drawing" class="link-btn" target="_blank" rel="noopener">📄 도면 PDF</a>
       </div>
     </div>
@@ -88,6 +89,7 @@
     const ul = document.getElementById('notes'); ul.replaceChildren();
     for (const n of meta.notes || []) { const li = document.createElement('li'); li.textContent = n; ul.appendChild(li); }
     document.getElementById('site-ar').href = `ar.html?line=${encodeURIComponent(m.id)}`;
+    document.getElementById('markers').href = `markers.html?line=${encodeURIComponent(m.id)}`;
     const dw = document.getElementById('drawing');
     dw.hidden = !m.drawing; if (m.drawing) dw.href = m.drawing;
     for (const b of nav.children) b.setAttribute('aria-pressed', String(b.dataset.id === m.id));
