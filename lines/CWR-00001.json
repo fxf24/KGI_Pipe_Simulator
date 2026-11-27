@@ -1,0 +1,19 @@
+{
+  "name": "6\"-CWR-00001-A1C",
+  "service": "냉각수 회수 (CWR)",
+  "confidence": "하",
+  "bomPipeM": 32.7,
+  "notes": [
+    "중간의 2800은 수직 상승으로 해석. BOP EL GL+9400은 상단 런 기준.",
+    "하단 런 치수 판독 불확실: 읽은 값 합계가 BOM보다 약 3 m 김. 도면 원본 확인 필요.",
+    "CWS 연결 바이패스(상세 'A')는 미반영. 2\" 분기 7개(CWR-00002~00008)."
+  ],
+  "header": {
+    "size": "6", "branchSize": "2", "bop": 9400, "bopRun": "last", "valve": "gate",
+    "segments": ["200 drain", "350 support", "440 vent", "1860 branch:CWR-00008", "2000 branch:CWR-00007",
+                 "500 support", "2100 branch:CWR-00006", "2500 support", "2100 branch:CWR-00005",
+                 "2500 support", "4400 support", "1700", "2800 rise",
+                 "2100 support", "600 branch:CWR-00004", "2900 branch:CWR-00003", "1500 support",
+                 "2000 branch:CWR-00002", "2400 support", "740 end"]
+  }
+}

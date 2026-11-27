@@ -2,7 +2,11 @@
 *.pdf
 1.5-PA-00011-A2C-02/
 
-# Local tooling / test-only model
+# Test recordings stay local
+*.mp4
+*.mov
+*.MOV
+*.m4v
+
+# Local tooling
 .claude/
-models/test-pipe-set.glb
-lines/test-pipe-set.json

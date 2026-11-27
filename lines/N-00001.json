@@ -1,0 +1,14 @@
+{
+  "name": "2\"-N-00001-A2C",
+  "service": "질소 (N2)",
+  "confidence": "중",
+  "bomPipeM": 9.3,
+  "notes": [
+    "BOP EL GL+9400. 2\" 분기 3개(N-00002~00004), 게이트 밸브."
+  ],
+  "header": {
+    "size": "2", "bop": 9400, "valve": "gate",
+    "segments": ["128 drain", "150 support", "600 branch:N-00004", "3500 branch:N-00003", "300 support",
+                 "3200 branch:N-00002", "1200 support", "300 end"]
+  }
+}

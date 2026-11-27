@@ -1,0 +1,17 @@
+{
+  "name": "2\"-IA-00011-A3C",
+  "service": "계장 공기 (IA, 아연도금)",
+  "confidence": "하",
+  "bomPipeM": 35.1,
+  "notes": [
+    "중간의 2800은 수직 상승으로 해석. BOP EL GL+9400은 상승 후(상단) 런 기준, 하단 런은 그보다 2800 낮음.",
+    "도면 치수가 작아 서포트·분기 순서는 추정. 2\" 분기관이 BOM 길이에 포함되어 메인 런보다 김."
+  ],
+  "header": {
+    "size": "2", "bop": 9400, "bopRun": "last", "valve": "gate",
+    "segments": ["128 drain", "350 support", "3300 branch:IA-00017", "1300 support", "3300 branch:IA-00016",
+                 "1300 support", "1300 branch:IA-00015", "4400 support", "1700", "2800 rise",
+                 "2700 support", "600 branch:IA-00014", "3500 branch:IA-00013", "300 support",
+                 "3200 branch:IA-00012", "1200 support", "300 end"]
+  }
+}

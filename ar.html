@@ -76,7 +76,7 @@ const lineId = new URLSearchParams(location.search).get('line') || 'PA-00011';
 const UP = new THREE.Vector3(0, 1, 0);
 
 // ---------- data ----------
-const line = await fetch(`lines/${lineId}.json`).then(r => r.json());
+const line = await fetch(`models/${lineId}.json`).then(r => r.json());   // generated metadata (refPoints etc.)
 // [E, N, EL] mm -> three.js meters (x = E, y = EL, z = -N)
 const toV = a => new THREE.Vector3(a[0] / 1000, a[2] / 1000, -a[1] / 1000);
 const refs = line.refPoints.map(p => ({ label: p.label, v: toV(p.at) }));

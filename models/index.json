@@ -1,0 +1,68 @@
+[
+    {
+        "id":  "CWR-00001",
+        "name":  "6\"-CWR-00001-A1C",
+        "service":  "냉각수 회수 (CWR)",
+        "confidence":  "하"
+    },
+    {
+        "id":  "CWR-00011",
+        "name":  "6\"-CWR-00011-A1C",
+        "service":  "냉각수 회수 (CWR)",
+        "confidence":  "하"
+    },
+    {
+        "id":  "CWS-00001",
+        "name":  "6\"-CWS-00001-A1C",
+        "service":  "냉각수 공급 (CWS)",
+        "confidence":  "중"
+    },
+    {
+        "id":  "CWS-00011",
+        "name":  "6\"-CWS-00011-A1C",
+        "service":  "냉각수 공급 (CWS)",
+        "confidence":  "하"
+    },
+    {
+        "id":  "IA-00001",
+        "name":  "2\"-IA-00001-A3C",
+        "service":  "계장 공기 (IA, 아연도금)",
+        "confidence":  "중"
+    },
+    {
+        "id":  "IA-00011",
+        "name":  "2\"-IA-00011-A3C",
+        "service":  "계장 공기 (IA, 아연도금)",
+        "confidence":  "하"
+    },
+    {
+        "id":  "N-00001",
+        "name":  "2\"-N-00001-A2C",
+        "service":  "질소 (N2)",
+        "confidence":  "중"
+    },
+    {
+        "id":  "N-00011",
+        "name":  "2\"-N-00011-A2C",
+        "service":  "질소 (N2)",
+        "confidence":  "하"
+    },
+    {
+        "id":  "PA-00011",
+        "name":  "1-1/2\"-PA-00011-A2C",
+        "service":  "공장 공기 (PA)",
+        "confidence":  "중"
+    },
+    {
+        "id":  "PW-00001",
+        "name":  "1-1/2\"-PW-00001-A1S-ET",
+        "service":  "공정수 추정 (PW, SUS304)",
+        "confidence":  "중"
+    },
+    {
+        "id":  "PW-00011",
+        "name":  "1-1/2\"-PW-00011-A1S-ET",
+        "service":  "공정수 추정 (PW, SUS304)",
+        "confidence":  "중"
+    }
+]

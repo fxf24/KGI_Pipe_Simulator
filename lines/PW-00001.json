@@ -1,0 +1,14 @@
+{
+  "name": "1-1/2\"-PW-00001-A1S-ET",
+  "service": "공정수 추정 (PW, SUS304)",
+  "confidence": "중",
+  "bomPipeM": 10.3,
+  "notes": [
+    "BOP EL GL+9500. 밸브는 볼 밸브(도면 BOM), 모양은 단순화.",
+    "끝 엘보 이후 하향 1000과 분기 길이는 임의."
+  ],
+  "header": {
+    "size": "1-1/2", "bop": 9500, "valve": "ball",
+    "segments": ["150 drain", "350 support", "4400 support", "300 branch:PW-00002", "4100 support", "980 end"]
+  }
+}

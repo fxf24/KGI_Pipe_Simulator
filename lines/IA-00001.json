@@ -1,0 +1,15 @@
+{
+  "name": "2\"-IA-00001-A3C",
+  "service": "계장 공기 (IA, 아연도금)",
+  "confidence": "중",
+  "bomPipeM": 9.5,
+  "notes": [
+    "BOP EL GL+9400. 2\" 분기 3개(IA-00002~00004), 게이트 밸브.",
+    "BOM 배관 길이에는 2\" 분기관도 포함되어 메인 런보다 약간 김."
+  ],
+  "header": {
+    "size": "2", "bop": 9400, "valve": "gate",
+    "segments": ["128 drain", "350 support", "400 branch:IA-00004", "3500 branch:IA-00003", "500 support",
+                 "3000 branch:IA-00002", "1400 support", "300 end"]
+  }
+}

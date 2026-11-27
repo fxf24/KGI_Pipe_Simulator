@@ -1,0 +1,19 @@
+{
+  "name": "6\"-CWS-00011-A1C",
+  "service": "냉각수 공급 (CWS)",
+  "confidence": "하",
+  "bomPipeM": 32.7,
+  "notes": [
+    "중간의 2800은 수직 상승으로 해석. BOP EL GL+9400은 상단 런 기준.",
+    "2\" 분기 6개(CWS-00012~00017). 하단 런 치수 일부 판독 불확실(BOM과 약 0.5 m 차이).",
+    "서포트·분기 순서는 추정."
+  ],
+  "header": {
+    "size": "6", "branchSize": "2", "bop": 9400, "bopRun": "last", "valve": "gate",
+    "segments": ["200 drain", "150 vent", "200 support", "2100 branch:CWS-00017", "2800 support",
+                 "2300 branch:CWS-00016", "2300 support", "2300 branch:CWS-00015",
+                 "4400 support", "1700", "2800 rise",
+                 "2300 support", "400 branch:CWS-00014", "3100 branch:CWS-00013", "1300 support",
+                 "2200 branch:CWS-00012", "2200 support", "500 end"]
+  }
+}
