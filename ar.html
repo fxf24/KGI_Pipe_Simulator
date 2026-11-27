@@ -15,7 +15,7 @@
   #title { font-weight: 600; font-size: 15px; }
   #msg { margin-top: 4px; font-size: 14px; color: var(--muted); line-height: 1.45; }
   #msg b { color: var(--text); }
-  #status { margin-top: 6px; font-size: 13px; }
+  #status { margin-top: 6px; font-size: 13px; white-space: pre-line; }
   #status:empty, #err:empty { display: none; }
   #err { margin-top: 6px; font-size: 13px; color: #ff7a7a; }
   .btns { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -118,6 +118,8 @@ const markers = new THREE.Group(); scene.add(markers);
 
 // ---------- placement logic ----------
 let mode = 'site', taps = [], lowered = false, hit = null;
+// ARCore anchors keep the taps glued to the real floor while ARCore corrects its map.
+let xrActive = false, anchorQueue = [], tapAnchors = [], anchorGen = 0;
 const angleXZ = v => Math.atan2(-v.z, v.x);   // rotation about +Y moves this angle by +theta
 
 function msg(html) { $('msg').innerHTML = html; }
@@ -144,14 +146,15 @@ function mark() {
   const knob = new THREE.Mesh(new THREE.SphereGeometry(0.05, 16, 12), mat); knob.position.y = 0.5;
   const foot = new THREE.Mesh(new THREE.RingGeometry(0.04, 0.07, 32).rotateX(-Math.PI / 2), mat); foot.position.y = 0.002;
   m.add(pole, knob, foot); m.position.copy(p); markers.add(m);
+  if (xrActive) anchorQueue.push(taps.length - 1);   // turned into an ARCore anchor on the next XR frame
   if (taps.length === 2) place(); else prompt();
 }
 
-function place() {
+// Pivot transform from the two taps (also re-run every frame in AR as the anchors are corrected).
+function computePlacement() {
   const [A, B] = taps;
   const d = B.clone().sub(A); d.y = 0;
   const realDist = d.length();
-  if (realDist < 0.05) { reset(); msg('두 점이 너무 가깝습니다. 다시 찍어 주세요.'); return; }
   if (mode === 'site') {
     const mA = refs[0].v, mB = refs[1].v;
     const md = mB.clone().sub(mA); md.y = 0;
@@ -162,24 +165,36 @@ function place() {
     pivot.rotation.set(0, theta, 0);
     pivot.position.copy(midR).sub(midM.clone().applyAxisAngle(UP, theta));
     pivot.position.y = (A.y + B.y) / 2 + (lowered ? -box.min.y : 0);
-    const err = (realDist - md.length()) * 100;
+    return { realDist, modelDist: md.length() };
+  }
+  const sizeX = box.max.x - box.min.x, sizeZ = box.max.z - box.min.z;
+  const longAxis = sizeX >= sizeZ ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 0, -1);
+  const s = realDist / Math.max(sizeX, sizeZ);
+  const theta = angleXZ(d) - angleXZ(longAxis);
+  const c = box.getCenter(new THREE.Vector3()); c.y = 0;
+  const midR = A.clone().add(B).multiplyScalar(0.5);
+  pivot.scale.setScalar(s);
+  pivot.rotation.set(0, theta, 0);
+  pivot.position.copy(midR).sub(c.applyAxisAngle(UP, theta).multiplyScalar(s));
+  pivot.position.y = (A.y + B.y) / 2 - box.min.y * s;
+  return { realDist, scale: s };
+}
+
+function place() {
+  const [A, B] = taps;
+  const d = B.clone().sub(A); d.y = 0;
+  const realDist = d.length();
+  if (realDist < 0.05) { reset(); msg('두 점이 너무 가깝습니다. 다시 찍어 주세요.'); return; }
+  const r = computePlacement();
+  if (mode === 'site') {
+    const err = (realDist - r.modelDist) * 100;
     const ok = Math.abs(err) <= 10;
-    msg(`배치 완료. 도면 기준 거리 <b>${md.length().toFixed(2)} m</b>, 실제 찍은 거리 <b>${realDist.toFixed(2)} m</b> → ` +
+    msg(`배치 완료. 도면 기준 거리 <b>${r.modelDist.toFixed(2)} m</b>, 실제 찍은 거리 <b>${realDist.toFixed(2)} m</b> → ` +
         `<b style="color:var(${ok ? '--ok' : '--warn'})">오차 ${err >= 0 ? '+' : ''}${err.toFixed(0)} cm</b>` +
         (ok ? '' : '<br>오차가 큽니다. 기준점을 정확히 찍었는지 확인하고 <b>다시 지정</b>하세요.'));
     $('btn-height').hidden = false;
   } else {
-    const sizeX = box.max.x - box.min.x, sizeZ = box.max.z - box.min.z;
-    const longAxis = sizeX >= sizeZ ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 0, -1);
-    const s = realDist / Math.max(sizeX, sizeZ);
-    const theta = angleXZ(d) - angleXZ(longAxis);
-    const c = box.getCenter(new THREE.Vector3()); c.y = 0;
-    const midR = A.clone().add(B).multiplyScalar(0.5);
-    pivot.scale.setScalar(s);
-    pivot.rotation.set(0, theta, 0);
-    pivot.position.copy(midR).sub(c.applyAxisAngle(UP, theta).multiplyScalar(s));
-    pivot.position.y = (A.y + B.y) / 2 - box.min.y * s;
-    msg(`축소 모형 배치 완료 (축척 약 <b>1:${Math.round(1 / s)}</b>).`);
+    msg(`축소 모형 배치 완료 (축척 약 <b>1:${Math.round(1 / r.scale)}</b>).`);
   }
   refMarks.visible = mode === 'site' && !lowered;
   pivot.visible = true; reticle.visible = false;
@@ -187,6 +202,9 @@ function place() {
 }
 
 function reset() {
+  anchorGen++; anchorQueue = [];
+  for (const a of tapAnchors) a && a.delete && a.delete();
+  tapAnchors = [];
   taps = []; markers.clear(); pivot.visible = false;
   $('btn-mark').hidden = false; $('btn-height').hidden = true;
   prompt();
@@ -216,7 +234,7 @@ async function startAR() {
   let session;
   try {
     session = await navigator.xr.requestSession('immersive-ar', {
-      requiredFeatures: ['hit-test'], optionalFeatures: ['dom-overlay'], domOverlay: { root: $('overlay') } });
+      requiredFeatures: ['hit-test'], optionalFeatures: ['dom-overlay', 'anchors'], domOverlay: { root: $('overlay') } });
   } catch (e) { $('overlay').classList.remove('on'); throw e; }
   // Without this, three.js keeps drawing to the hidden page canvas instead of the AR view.
   renderer.xr.enabled = true;
@@ -226,28 +244,54 @@ async function startAR() {
   hitSource = await session.requestHitTestSource({ space: viewer });
   session.addEventListener('select', () => { try { mark(); } catch (e) { showError(e); } });
   session.addEventListener('end', () => location.reload());
+  xrActive = true;
+  const anchorsOK = session.enabledFeatures ? session.enabledFeatures.includes('anchors') : typeof XRFrame.prototype.createAnchor === 'function';
   begin();
   reticle.matrixAutoUpdate = false;
-  let lastHitAt = 0, floorShown = null;
+  let floorShown = null;
+  const floorText = found => (found ? '✅ 바닥 인식됨 — 주변을 2~3초 천천히 비춘 뒤 흰 원 위치에 점을 찍으면 더 정확합니다'
+                                    : '🔍 바닥 찾는 중… 휴대폰을 천천히 좌우로 움직여 주세요')
+    + (anchorsOK ? '' : '\n⚠ 이 기기는 위치 보정(앵커)을 지원하지 않아 모델이 조금씩 밀릴 수 있습니다');
   // three.js re-requests the next XR frame only after this callback returns, so an exception here
   // would freeze hit-testing for the rest of the session. Never let it throw.
   renderer.setAnimationLoop((t, frame) => {
     try {
+      const ref = renderer.xr.getReferenceSpace();
       reticle.visible = false;
+      let res = [];
       if (frame && hitSource && taps.length < 2) {
-        const res = frame.getHitTestResults(hitSource);
-        const pose = res.length ? res[0].getPose(renderer.xr.getReferenceSpace()) : null;  // getPose may return null
+        res = frame.getHitTestResults(hitSource);
+        const pose = res.length ? res[0].getPose(ref) : null;  // getPose may return null
         if (pose) {
           reticle.matrix.fromArray(pose.transform.matrix);
           reticle.visible = true;
           hit = new THREE.Vector3().setFromMatrixPosition(reticle.matrix);
-          lastHitAt = t;
-        } else if (t - lastHitAt > 700) {
-          hit = null;   // keep the last hit briefly so a tap during a one-frame dropout still counts
-        }
+        } else hit = null;   // only mark where the ring is right now
         const found = !!hit;
-        if (found !== floorShown) { floorShown = found; status(found ? '✅ 바닥 인식됨 — 흰 원 위치에 점을 찍을 수 있습니다' : '🔍 바닥 찾는 중… 휴대폰을 천천히 좌우로 움직여 주세요'); }
-      } else if (floorShown !== null && taps.length >= 2) { floorShown = null; status(''); }
+        if (found !== floorShown) { floorShown = found; status(floorText(found)); }
+      } else if (floorShown !== null && taps.length >= 2) { floorShown = null; status(anchorsOK ? '' : floorText(true).split('\n')[1]); }
+
+      if (frame && anchorsOK) {
+        // create anchors for new taps (only possible inside an XR frame)
+        while (anchorQueue.length) {
+          const i = anchorQueue.shift(), p = taps[i], gen = anchorGen;
+          const make = res.length && res[0].createAnchor ? res[0].createAnchor()
+            : frame.createAnchor(new XRRigidTransform({ x: p.x, y: p.y, z: p.z }), ref);
+          make.then(a => { if (gen === anchorGen) tapAnchors[i] = a; else a.delete(); })
+              .catch(e => showError(e));
+        }
+        // follow ARCore's corrections: move taps, markers and the model with the anchors
+        let moved = false;
+        tapAnchors.forEach((a, i) => {
+          const ap = a && frame.trackedAnchors && frame.trackedAnchors.has(a) ? frame.getPose(a.anchorSpace, ref) : null;
+          if (!ap) return;
+          const q = ap.transform.position;
+          if (taps[i].distanceToSquared(new THREE.Vector3(q.x, q.y, q.z)) > 1e-8) {
+            taps[i].set(q.x, q.y, q.z); markers.children[i].position.copy(taps[i]); moved = true;
+          }
+        });
+        if (moved && taps.length === 2 && pivot.visible) computePlacement();
+      }
     } catch (e) { showError(e); }
     renderer.render(scene, camera);
   });
